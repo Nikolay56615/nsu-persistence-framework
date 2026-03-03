@@ -1,4 +1,4 @@
-package ru.nsu
+package ru.nsu.api
 
 import java.nio.file.Path
 

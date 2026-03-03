@@ -1,5 +1,6 @@
-package ru.nsu
+package ru.nsu.api
 
+import ru.nsu.PersistFilter
 import java.nio.file.Path
 import kotlin.reflect.KClass
 
