@@ -11,15 +11,33 @@ import java.lang.reflect.Type
 import java.math.BigDecimal
 
 internal class JsonValueDecoder {
+    private class DeserializationContext {
+        val objectsById = mutableMapOf<String, Any>()
 
-    fun decode(node: JsonNode, type: Type): Any? {
+        fun resolveReference(referenceId: String): Any {
+            return objectsById[referenceId] ?: throw DeserializationException(
+                "Unresolved object reference '$referenceId'. " +
+                    "The target object has not been created yet; cyclic graphs require the target class " +
+                    "to support pre-creation via an accessible no-arg constructor and mutable fields."
+            )
+        }
+    }
+
+    fun decode(node: JsonNode, type: Type): Any? = decode(node, type, DeserializationContext())
+
+    private fun decode(node: JsonNode, type: Type, context: DeserializationContext): Any? {
         if (node.isNull) {
             return null
+        }
+        if (node.isObject && node.has(Codec.REF_FIELD)) {
+            val referenceId = node.get(Codec.REF_FIELD)?.asText()
+                ?: throw DeserializationException("Reference node must contain a non-null ${Codec.REF_FIELD} value")
+            return context.resolveReference(referenceId)
         }
 
         val raw = TypeUtils.rawClass(type)
         return when {
-            raw == Any::class.java -> decodeAny(node)
+            raw == Any::class.java -> decodeAny(node, context)
             raw == String::class.java -> node.asText()
             raw == Char::class.java || raw == java.lang.Character::class.java -> decodeChar(node)
             raw == Boolean::class.javaPrimitiveType || raw == java.lang.Boolean::class.java -> node.asBoolean()
@@ -31,10 +49,10 @@ internal class JsonValueDecoder {
             raw == Double::class.javaPrimitiveType || raw == java.lang.Double::class.java -> node.numberValue().toDouble()
             raw == BigDecimal::class.java -> node.decimalValue()
             raw.isEnum -> decodeEnum(raw, node)
-            raw.isArray || type is GenericArrayType -> decodeArray(node, type)
-            Collection::class.java.isAssignableFrom(raw) -> decodeCollection(node, type, raw)
-            Map::class.java.isAssignableFrom(raw) -> decodeMap(node, type)
-            raw.isAnnotationPresent(Persistable::class.java) -> decodeObject(node, raw)
+            raw.isArray || type is GenericArrayType -> decodeArray(node, type, context)
+            Collection::class.java.isAssignableFrom(raw) -> decodeCollection(node, type, raw, context)
+            Map::class.java.isAssignableFrom(raw) -> decodeMap(node, type, context)
+            raw.isAnnotationPresent(Persistable::class.java) -> decodeObject(node, raw, context)
             else -> throw UnsupportedTypeException(type.typeName)
         }
     }
@@ -47,7 +65,7 @@ internal class JsonValueDecoder {
         return text.single()
     }
 
-    private fun decodeArray(node: JsonNode, type: Type): Any {
+    private fun decodeArray(node: JsonNode, type: Type, context: DeserializationContext): Any {
         if (!node.isArray) {
             throw DeserializationException("Expected JSON array for type ${type.typeName}")
         }
@@ -61,12 +79,17 @@ internal class JsonValueDecoder {
         val componentClass = TypeUtils.rawClass(componentType)
         val result = Array.newInstance(componentClass, node.size())
         node.forEachIndexed { index, item ->
-            Array.set(result, index, decode(item, componentType))
+            Array.set(result, index, decode(item, componentType, context))
         }
         return result
     }
 
-    private fun decodeCollection(node: JsonNode, type: Type, raw: Class<*>): Collection<Any?> {
+    private fun decodeCollection(
+        node: JsonNode,
+        type: Type,
+        raw: Class<*>,
+        context: DeserializationContext
+    ): Collection<Any?> {
         if (!node.isArray) {
             throw DeserializationException("Expected JSON array for collection type ${type.typeName}")
         }
@@ -77,14 +100,14 @@ internal class JsonValueDecoder {
             Any::class.java
         }
 
-        val values = node.map { decode(it, elementType) }
+        val values = node.map { decode(it, elementType, context) }
         return when {
             Set::class.java.isAssignableFrom(raw) -> LinkedHashSet(values)
             else -> values.toMutableList()
         }
     }
 
-    private fun decodeMap(node: JsonNode, type: Type): Map<Any, Any?> {
+    private fun decodeMap(node: JsonNode, type: Type, context: DeserializationContext): Map<Any, Any?> {
         if (!node.isObject) {
             throw DeserializationException("Expected JSON object for map type ${type.typeName}")
         }
@@ -96,37 +119,75 @@ internal class JsonValueDecoder {
         val map = LinkedHashMap<Any, Any?>()
         node.fields().forEach { (key, valueNode) ->
             val parsedKey = TypeUtils.stringToKey(key, keyClass)
-            map[parsedKey] = decode(valueNode, valueType)
+            map[parsedKey] = decode(valueNode, valueType, context)
         }
         return map
     }
 
-    private fun decodeObject(node: JsonNode, clazz: Class<*>): Any {
+    private fun decodeObject(node: JsonNode, clazz: Class<*>, context: DeserializationContext): Any {
         if (!node.isObject) {
             throw DeserializationException("Expected JSON object for class ${clazz.name}")
         }
 
+        val objectId = node.get(Codec.ID_FIELD)?.asText()
+        if (objectId != null && context.objectsById.containsKey(objectId)) {
+            return context.objectsById.getValue(objectId)
+        }
+
         val meta = PersistClassIntrospector.getMeta(clazz)
+        if (objectId != null && ObjectInstantiator.canInstantiateWithoutData(clazz)) {
+            val instance = ObjectInstantiator.instantiateEmpty(clazz)
+            context.objectsById[objectId] = instance
+
+            val valuesByField = decodeFieldValues(node, meta, context)
+            ObjectInstantiator.populateFields(instance, clazz, valuesByField)
+            return instance
+        }
+
+        return try {
+            val valuesByField = decodeFieldValues(node, meta, context)
+            val instance = ObjectInstantiator.instantiate(clazz, valuesByField)
+            if (objectId != null) {
+                context.objectsById[objectId] = instance
+            }
+            instance
+        } catch (ex: DeserializationException) {
+            if (objectId != null && !ObjectInstantiator.canInstantiateWithoutData(clazz)) {
+                throw DeserializationException(
+                    "Failed to restore object graph for ${clazz.name}. " +
+                        "This object participates in a \$id/\$ref graph but cannot be pre-created before its fields " +
+                        "are decoded. Add an accessible no-arg constructor and mutable fields, or remove the cycle.",
+                    ex
+                )
+            }
+            throw ex
+        }
+    }
+
+    private fun decodeFieldValues(
+        node: JsonNode,
+        meta: PersistClassMeta,
+        context: DeserializationContext
+    ): Map<String, Any?> {
         val valuesByField = mutableMapOf<String, Any?>()
         for (field in meta.fields) {
             val valueNode = node.get(field.jsonName) ?: continue
-            valuesByField[field.fieldName] = decode(valueNode, field.genericType)
+            valuesByField[field.fieldName] = decode(valueNode, field.genericType, context)
         }
-
-        return ObjectInstantiator.instantiate(clazz, valuesByField)
+        return valuesByField
     }
 
-    private fun decodeAny(node: JsonNode): Any? = when {
+    private fun decodeAny(node: JsonNode, context: DeserializationContext): Any? = when {
         node.isNull -> null
         node.isTextual -> node.asText()
         node.isBoolean -> node.asBoolean()
         node.isInt -> node.intValue()
         node.isLong -> node.longValue()
         node.isFloat || node.isDouble || node.isBigDecimal -> node.decimalValue()
-        node.isArray -> node.map { decodeAny(it) }
+        node.isArray -> node.map { decodeAny(it, context) }
         node.isObject -> {
             val result = LinkedHashMap<String, Any?>()
-            node.fields().forEach { (key, child) -> result[key] = decodeAny(child) }
+            node.fields().forEach { (key, child) -> result[key] = decodeAny(child, context) }
             result
         }
 

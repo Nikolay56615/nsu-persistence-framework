@@ -27,6 +27,7 @@ internal data class PersistClassMeta(
 )
 
 internal object PersistClassIntrospector {
+    private val reservedJsonNames = setOf(Codec.ID_FIELD, Codec.REF_FIELD)
     private val cache = ConcurrentHashMap<Class<*>, PersistClassMeta>()
 
     fun getMeta(clazz: Class<*>): PersistClassMeta = cache.computeIfAbsent(clazz) { inspect(it) }
@@ -105,6 +106,17 @@ internal object PersistClassIntrospector {
     }
 
     private fun ensureUniqueJsonNames(clazz: Class<*>, fields: List<PersistFieldMeta>) {
+        val reservedNames = fields
+            .map { it.jsonName }
+            .filter { it in reservedJsonNames }
+            .distinct()
+
+        if (reservedNames.isNotEmpty()) {
+            throw PersistenceException(
+                "Class '${clazz.name}' uses reserved JSON field names: ${reservedNames.joinToString(", ")}"
+            )
+        }
+
         val duplicates = fields
             .groupBy { it.jsonName }
             .filterValues { it.size > 1 }
