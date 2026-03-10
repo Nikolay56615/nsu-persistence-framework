@@ -11,6 +11,8 @@ repositories {
 
 dependencies {
     testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.12.0")
+    testImplementation("org.assertj:assertj-core:3.27.3")
     implementation(kotlin("reflect"))
     implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
 }
