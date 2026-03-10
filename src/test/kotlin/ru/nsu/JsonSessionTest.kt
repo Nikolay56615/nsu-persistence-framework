@@ -1,6 +1,5 @@
 package ru.nsu
 
-import com.fasterxml.jackson.databind.JsonNode
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
@@ -30,7 +29,7 @@ class JsonSessionTest {
             .insert(alice)
             .insert(bob)
 
-        val activeUsers = session.find(User::class, fieldEquals("is_active", true))
+        val activeUsers = session.find(User::class, Filters.eq("is_active", true))
 
         assertThat(session.find(User::class)).containsExactlyInAnyOrder(alice, bob)
         assertThat(activeUsers).containsExactly(alice)
@@ -57,9 +56,10 @@ class JsonSessionTest {
             .insert(bob)
             .persist()
 
-        val deleteFilter = PersistFilter { node ->
-            (node as JsonNode).get("id").asText() in setOf("u-2", "u-3")
-        }
+        val deleteFilter = Filters.or(
+            Filters.eq("id", "u-2"),
+            Filters.eq("id", "u-3")
+        )
 
         val session = JsonSession(tempDir, codec)
             .insert(charlie)
@@ -86,7 +86,7 @@ class JsonSessionTest {
         }.hasMessageContaining(PlainRecord::class.java.name)
 
         assertThatThrownBy {
-            session.delete(PlainRecord::class, fieldEquals("id", "plain-1"))
+            session.delete(PlainRecord::class, Filters.eq("id", "plain-1"))
         }.hasMessageContaining(PlainRecord::class.java.name)
     }
 
@@ -103,16 +103,5 @@ class JsonSessionTest {
             active = active,
             tags = setOf("test")
         )
-    }
-
-    private fun fieldEquals(fieldName: String, expected: Any): PersistFilter {
-        return PersistFilter { node ->
-            val json = node as JsonNode
-            when (expected) {
-                is Boolean -> json.get(fieldName)?.asBoolean() == expected
-                is Int -> json.get(fieldName)?.asInt() == expected
-                else -> json.get(fieldName)?.asText() == expected.toString()
-            }
-        }
     }
 }

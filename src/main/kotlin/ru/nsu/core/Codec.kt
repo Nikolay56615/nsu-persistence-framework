@@ -12,6 +12,11 @@ import kotlin.reflect.KClass
 class Codec(
     private val objectMapper: ObjectMapper = ObjectMapper()
 ) {
+    companion object {
+        const val ID_FIELD = $$"$id"
+        const val REF_FIELD = $$"$ref"
+    }
+
     private val encoder = JsonValueEncoder(objectMapper)
     private val decoder = JsonValueDecoder()
 

@@ -1,6 +1,5 @@
 package ru.nsu
 
-import com.fasterxml.jackson.databind.JsonNode
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -34,8 +33,9 @@ class JsonSerialStreamTest {
         val bobFile = tempDir.resolve("bob.json")
         serializer.serialize(bob, bobFile)
 
-        val activeFilter = PersistFilter { node ->
-            (node as JsonNode).get("is_active").asBoolean()
+        val activeFilter = Filters.eq("is_active", true)
+        val bobFilter = PersistFilter { node ->
+            node.get("name").asText() == "Bob"
         }
 
         val stream = JsonSerialStream(User::class, codec)
@@ -44,7 +44,7 @@ class JsonSerialStreamTest {
 
         assertThat(stream.toList()).containsExactly(alice, bob)
         assertThat(stream.toList(activeFilter)).containsExactly(alice)
-        assertThat(stream.toListExclude(activeFilter)).containsExactly(bob)
+        assertThat(stream.toListExclude(bobFilter)).containsExactly(alice)
     }
 
     private fun user(id: String, name: String, active: Boolean): User {
