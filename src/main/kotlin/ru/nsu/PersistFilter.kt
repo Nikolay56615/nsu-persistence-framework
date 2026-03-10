@@ -1,5 +1,7 @@
 package ru.nsu
 
+import com.fasterxml.jackson.databind.JsonNode
+
 fun interface PersistFilter {
-    fun matches(node: Any): Boolean //TODO: Provide actual json node
+    fun matches(node: JsonNode): Boolean
 }
