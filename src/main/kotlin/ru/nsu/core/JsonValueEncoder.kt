@@ -13,13 +13,28 @@ import ru.nsu.exception.SerializationException
 import ru.nsu.exception.UnsupportedTypeException
 import java.lang.reflect.Array
 import java.math.BigDecimal
+import java.util.IdentityHashMap
 
 internal class JsonValueEncoder(
     private val objectMapper: ObjectMapper
 ) {
-    fun encode(value: Any?): JsonNode = encodeValue(value)
+    private class SerializationContext {
+        private val objectIds = IdentityHashMap<Any, String>()
+        private var nextId = 1L
 
-    private fun encodeValue(value: Any?): JsonNode {
+        fun existingId(value: Any): String? = objectIds[value]
+
+        fun register(value: Any): String {
+            val id = nextId.toString()
+            nextId += 1
+            objectIds[value] = id
+            return id
+        }
+    }
+
+    fun encode(value: Any?): JsonNode = encodeValue(value, SerializationContext())
+
+    private fun encodeValue(value: Any?, context: SerializationContext): JsonNode {
         if (value == null) {
             return NullNode.instance
         }
@@ -34,7 +49,7 @@ internal class JsonValueEncoder(
             is Enum<*> -> TextNode(value.name)
             is Iterable<*> -> {
                 val arrayNode = objectMapper.createArrayNode()
-                value.forEach { arrayNode.add(encodeValue(it)) }
+                value.forEach { arrayNode.add(encodeValue(it, context)) }
                 arrayNode
             }
 
@@ -42,7 +57,7 @@ internal class JsonValueEncoder(
                 val objectNode = objectMapper.createObjectNode()
                 value.forEach { (key, itemValue) ->
                     val keyLiteral = keyToString(key)
-                    objectNode.set<JsonNode>(keyLiteral, encodeValue(itemValue))
+                    objectNode.set<JsonNode>(keyLiteral, encodeValue(itemValue, context))
                 }
                 objectNode
             }
@@ -50,8 +65,8 @@ internal class JsonValueEncoder(
             else -> {
                 val clazz = value.javaClass
                 when {
-                    clazz.isArray -> encodeArray(value)
-                    clazz.isAnnotationPresent(Persistable::class.java) -> encodeObject(value)
+                    clazz.isArray -> encodeArray(value, context)
+                    clazz.isAnnotationPresent(Persistable::class.java) -> encodeObject(value, context)
                     else -> throw UnsupportedTypeException(clazz.name)
                 }
             }
@@ -72,18 +87,25 @@ internal class JsonValueEncoder(
         }
     }
 
-    private fun encodeArray(value: Any): ArrayNode {
+    private fun encodeArray(value: Any, context: SerializationContext): ArrayNode {
         val length = Array.getLength(value)
         val arrayNode = objectMapper.createArrayNode()
         for (index in 0 until length) {
-            arrayNode.add(encodeValue(Array.get(value, index)))
+            arrayNode.add(encodeValue(Array.get(value, index), context))
         }
         return arrayNode
     }
 
-    private fun encodeObject(value: Any): ObjectNode {
+    private fun encodeObject(value: Any, context: SerializationContext): ObjectNode {
+        val existingId = context.existingId(value)
+        if (existingId != null) {
+            return objectMapper.createObjectNode().put(Codec.REF_FIELD, existingId)
+        }
+
+        val objectId = context.register(value)
         val meta = PersistClassIntrospector.getMeta(value.javaClass)
         val objectNode = objectMapper.createObjectNode()
+        objectNode.put(Codec.ID_FIELD, objectId)
         for (field in meta.fields) {
             val fieldValue = try {
                 field.field.get(value)
@@ -93,7 +115,7 @@ internal class JsonValueEncoder(
                     ex
                 )
             }
-            objectNode.set<JsonNode>(field.jsonName, encodeValue(fieldValue))
+            objectNode.set<JsonNode>(field.jsonName, encodeValue(fieldValue, context))
         }
         return objectNode
     }
