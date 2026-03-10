@@ -2,18 +2,19 @@ package ru.nsu.core
 
 import com.fasterxml.jackson.databind.JsonNode
 import ru.nsu.api.Deserializer
+import ru.nsu.exception.DeserializationException
 import kotlin.reflect.KClass
 
 class JsonDeserializer<T : Any>(
     private val clazz: KClass<T>,
     private val sourceJson: String,
-    private val codec: Codec
+    private val codec: Codec = Codec()
 ) : Deserializer<T> {
 
     override fun instance(): T {
         val node = codec.parse(sourceJson)
         if (!node.isObject) {
-            throw Exception("Expected JSON object for ${clazz.qualifiedName}.instance()")
+            throw DeserializationException("Expected JSON object for ${clazz.qualifiedName}.instance()")
         }
         return codec.decodeToClass(node, clazz)
     }
@@ -21,7 +22,7 @@ class JsonDeserializer<T : Any>(
     override fun collection(): List<T> {
         val node = codec.parse(sourceJson)
         if (!node.isArray) {
-            throw Exception("Expected JSON array for ${clazz.qualifiedName}.collection()")
+            throw DeserializationException("Expected JSON array for ${clazz.qualifiedName}.collection()")
         }
         return node.map { codec.decodeToClass(it, clazz) }
     }
@@ -29,7 +30,7 @@ class JsonDeserializer<T : Any>(
     override fun map(keyClass: KClass<*>): Map<Any, T> {
         val node = codec.parse(sourceJson)
         if (!node.isObject) {
-            throw Exception("Expected JSON object for ${clazz.qualifiedName}.map(..)")
+            throw DeserializationException("Expected JSON object for ${clazz.qualifiedName}.map(..)")
         }
         val result = LinkedHashMap<Any, T>()
         node.fields().forEach { (keyLiteral, valueNode) ->
@@ -41,7 +42,7 @@ class JsonDeserializer<T : Any>(
 
     private fun decodeMapValue(valueNode: JsonNode): T {
         if (!valueNode.isObject) {
-            throw Exception("Map values must be JSON objects for ${clazz.qualifiedName}")
+            throw DeserializationException("Map values must be JSON objects for ${clazz.qualifiedName}")
         }
         return codec.decodeToClass(valueNode, clazz)
     }

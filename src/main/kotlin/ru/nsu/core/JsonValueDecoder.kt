@@ -2,6 +2,8 @@ package ru.nsu.core
 
 import com.fasterxml.jackson.databind.JsonNode
 import ru.nsu.annotation.Persistable
+import ru.nsu.exception.DeserializationException
+import ru.nsu.exception.UnsupportedTypeException
 import java.lang.reflect.Array
 import java.lang.reflect.GenericArrayType
 import java.lang.reflect.ParameterizedType
@@ -33,27 +35,27 @@ internal class JsonValueDecoder {
             Collection::class.java.isAssignableFrom(raw) -> decodeCollection(node, type, raw)
             Map::class.java.isAssignableFrom(raw) -> decodeMap(node, type)
             raw.isAnnotationPresent(Persistable::class.java) -> decodeObject(node, raw)
-            else -> throw RuntimeException("Unsupported type: ${type.typeName}")
+            else -> throw UnsupportedTypeException(type.typeName)
         }
     }
 
     private fun decodeChar(node: JsonNode): Char {
         val text = node.asText()
         if (text.length != 1) {
-            throw RuntimeException("Expected single-character JSON string, but got '$text'")
+            throw DeserializationException("Expected single-character JSON string, but got '$text'")
         }
         return text.single()
     }
 
     private fun decodeArray(node: JsonNode, type: Type): Any {
         if (!node.isArray) {
-            throw RuntimeException("Expected JSON array for type ${type.typeName}")
+            throw DeserializationException("Expected JSON array for type ${type.typeName}")
         }
 
         val componentType = when (type) {
             is Class<*> -> type.componentType
             is GenericArrayType -> type.genericComponentType
-            else -> throw RuntimeException("Unable to infer array component type for ${type.typeName}")
+            else -> throw UnsupportedTypeException(type.typeName, "Unable to infer array component type")
         }
 
         val componentClass = TypeUtils.rawClass(componentType)
@@ -66,7 +68,7 @@ internal class JsonValueDecoder {
 
     private fun decodeCollection(node: JsonNode, type: Type, raw: Class<*>): Collection<Any?> {
         if (!node.isArray) {
-            throw RuntimeException("Expected JSON array for collection type ${type.typeName}")
+            throw DeserializationException("Expected JSON array for collection type ${type.typeName}")
         }
 
         val elementType = if (type is ParameterizedType) {
@@ -84,7 +86,7 @@ internal class JsonValueDecoder {
 
     private fun decodeMap(node: JsonNode, type: Type): Map<Any, Any?> {
         if (!node.isObject) {
-            throw RuntimeException("Expected JSON object for map type ${type.typeName}")
+            throw DeserializationException("Expected JSON object for map type ${type.typeName}")
         }
 
         val keyType = if (type is ParameterizedType) type.actualTypeArguments[0] else String::class.java
@@ -101,7 +103,7 @@ internal class JsonValueDecoder {
 
     private fun decodeObject(node: JsonNode, clazz: Class<*>): Any {
         if (!node.isObject) {
-            throw RuntimeException("Expected JSON object for class ${clazz.name}")
+            throw DeserializationException("Expected JSON object for class ${clazz.name}")
         }
 
         val meta = PersistClassIntrospector.getMeta(clazz)
@@ -137,7 +139,7 @@ internal class JsonValueDecoder {
             @Suppress("UNCHECKED_CAST")
             java.lang.Enum.valueOf(enumClass as Class<out Enum<*>>, literal)
         } catch (ex: Exception) {
-            throw RuntimeException(
+            throw DeserializationException(
                 "Failed to decode enum '${enumClass.name}' from '$literal': ${ex.message}",
                 ex
             )

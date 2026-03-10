@@ -12,7 +12,7 @@ import kotlin.reflect.KClass
 
 class JsonSession(
     private var baseDirectory: Path = Paths.get(System.getProperty("user.dir")),
-    private val codec: Codec
+    private val codec: Codec = Codec()
 ) : Session {
 
     private data class PendingInsert(val id: UUID, val node: JsonNode)

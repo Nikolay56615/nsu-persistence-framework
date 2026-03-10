@@ -8,6 +8,9 @@ import com.fasterxml.jackson.databind.node.NullNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.databind.node.TextNode
 import ru.nsu.annotation.Persistable
+import ru.nsu.exception.InvalidMapKeyTypeException
+import ru.nsu.exception.SerializationException
+import ru.nsu.exception.UnsupportedTypeException
 import java.lang.reflect.Array
 import java.math.BigDecimal
 
@@ -49,7 +52,7 @@ internal class JsonValueEncoder(
                 when {
                     clazz.isArray -> encodeArray(value)
                     clazz.isAnnotationPresent(Persistable::class.java) -> encodeObject(value)
-                    else -> throw RuntimeException("Unsupported type: ${clazz.name}")
+                    else -> throw UnsupportedTypeException(clazz.name)
                 }
             }
         }
@@ -57,7 +60,7 @@ internal class JsonValueEncoder(
 
     private fun keyToString(key: Any?): String {
         if (key == null) {
-            throw RuntimeException("Map key must be non-null")
+            throw InvalidMapKeyTypeException("null")
         }
 
         return when (key) {
@@ -65,7 +68,7 @@ internal class JsonValueEncoder(
             is Char -> key.toString()
             is Boolean, is Byte, is Short, is Int, is Long, is Float, is Double, is BigDecimal -> key.toString()
             is Enum<*> -> key.name
-            else -> throw RuntimeException("Unsupported map key type: ${key.javaClass.name}")
+            else -> throw InvalidMapKeyTypeException(key.javaClass.name)
         }
     }
 
@@ -85,7 +88,7 @@ internal class JsonValueEncoder(
             val fieldValue = try {
                 field.field.get(value)
             } catch (ex: Exception) {
-                throw RuntimeException(
+                throw SerializationException(
                     "Failed to read field '${field.fieldName}' from ${value.javaClass.name}: ${ex.message}",
                     ex
                 )

@@ -4,7 +4,7 @@ import ru.nsu.api.Serializer
 import java.nio.file.Path
 
 class JsonSerializer(
-    private val codec: Codec
+    private val codec: Codec = Codec()
 ) : Serializer {
 
     override fun serialize(value: Any?): String {

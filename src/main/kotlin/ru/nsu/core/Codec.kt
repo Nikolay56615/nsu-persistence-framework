@@ -2,6 +2,8 @@ package ru.nsu.core
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import ru.nsu.exception.DeserializationException
+import ru.nsu.exception.SerializationException
 import java.lang.reflect.Type
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,14 +18,14 @@ class Codec(
     fun parse(json: String): JsonNode = try {
         objectMapper.readTree(json)
     } catch (ex: Exception) {
-        throw RuntimeException("Failed to parse JSON: ${ex.message}", ex)
+        throw DeserializationException("Failed to parse JSON: ${ex.message}", ex)
     }
 
     fun parse(file: Path): JsonNode {
         val text = try {
             Files.readString(file)
         } catch (ex: Exception) {
-            throw RuntimeException("Failed to read JSON file '$file': ${ex.message}", ex)
+            throw DeserializationException("Failed to read JSON file '$file': ${ex.message}", ex)
         }
         return parse(text)
     }
@@ -31,13 +33,13 @@ class Codec(
     fun write(node: JsonNode): String = try {
         objectMapper.writeValueAsString(node)
     } catch (ex: Exception) {
-        throw RuntimeException("Failed to convert JSON tree to string: ${ex.message}", ex)
+        throw SerializationException("Failed to convert JSON tree to string: ${ex.message}", ex)
     }
 
     fun writePretty(node: JsonNode): String = try {
         objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(node)
     } catch (ex: Exception) {
-        throw RuntimeException("Failed to convert JSON tree to pretty string: ${ex.message}", ex)
+        throw SerializationException("Failed to convert JSON tree to pretty string: ${ex.message}", ex)
     }
 
     fun writeToFile(node: JsonNode, file: Path) {
@@ -45,7 +47,7 @@ class Codec(
             file.parent?.let { Files.createDirectories(it) }
             Files.writeString(file, writePretty(node))
         } catch (ex: Exception) {
-            throw RuntimeException("Failed to write JSON to '$file': ${ex.message}", ex)
+            throw SerializationException("Failed to write JSON to '$file': ${ex.message}", ex)
         }
     }
 
@@ -54,7 +56,7 @@ class Codec(
     fun <T : Any> decodeToClass(node: JsonNode, clazz: KClass<T>): T {
         val result = decode(node, clazz.java)
         if (!clazz.java.isInstance(result)) {
-            throw RuntimeException("Decoded value is not of expected type ${clazz.qualifiedName}")
+            throw DeserializationException("Decoded value is not of expected type ${clazz.qualifiedName}")
         }
         @Suppress("UNCHECKED_CAST")
         return result as T

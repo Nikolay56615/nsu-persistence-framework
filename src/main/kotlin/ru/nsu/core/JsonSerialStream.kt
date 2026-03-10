@@ -8,7 +8,7 @@ import kotlin.reflect.KClass
 
 class JsonSerialStream<T : Any>(
     private val clazz: KClass<T>,
-    private val codec: Codec
+    private val codec: Codec = Codec()
 ) : SerialStream<T> {
     private val documents = mutableListOf<JsonNode>()
 
