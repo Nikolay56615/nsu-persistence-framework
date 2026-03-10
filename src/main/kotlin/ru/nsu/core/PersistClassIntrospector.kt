@@ -3,11 +3,12 @@ package ru.nsu.core
 import ru.nsu.annotation.PersistIgnore
 import ru.nsu.annotation.PersistName
 import ru.nsu.annotation.Persistable
+import ru.nsu.exception.MissingPersistableAnnotationException
+import ru.nsu.exception.PersistenceException
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import java.lang.reflect.Type
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.collections.plusAssign
 import kotlin.reflect.jvm.kotlinProperty
 
 internal data class PersistFieldMeta(
@@ -32,7 +33,7 @@ internal object PersistClassIntrospector {
 
     fun requirePersistable(clazz: Class<*>) {
         if (!clazz.isAnnotationPresent(Persistable::class.java)) {
-            throw Exception(clazz.name)
+            throw MissingPersistableAnnotationException(clazz.name)
         }
     }
 
@@ -42,6 +43,9 @@ internal object PersistClassIntrospector {
         val fields = allFields(clazz)
             .asSequence()
             .filterNot { Modifier.isStatic(it.modifiers) }
+            .filterNot { Modifier.isTransient(it.modifiers) }
+            .filterNot { it.isSynthetic }
+            .filterNot { it.name.endsWith("\$delegate") }
             .filterNot { isIgnored(it) }
             .map { field ->
                 field.trySetAccessible()
@@ -107,7 +111,7 @@ internal object PersistClassIntrospector {
             .keys
 
         if (duplicates.isNotEmpty()) {
-            throw Exception(
+            throw PersistenceException(
                 "Class '${clazz.name}' contains duplicate JSON field names: ${duplicates.joinToString(", ")}"
             )
         }

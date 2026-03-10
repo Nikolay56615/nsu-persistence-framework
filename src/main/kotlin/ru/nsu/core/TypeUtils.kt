@@ -1,5 +1,7 @@
 package ru.nsu.core
 
+import ru.nsu.exception.InvalidMapKeyTypeException
+import ru.nsu.exception.UnsupportedTypeException
 import java.lang.reflect.Array
 import java.lang.reflect.GenericArrayType
 import java.lang.reflect.ParameterizedType
@@ -19,15 +21,15 @@ internal object TypeUtils {
 
         is WildcardType -> rawClass(type.upperBounds.firstOrNull() ?: Any::class.java)
         is TypeVariable<*> -> rawClass(type.bounds.firstOrNull() ?: Any::class.java)
-        else -> throw Exception("${type.typeName} Unable to resolve raw class")
+        else -> throw UnsupportedTypeException(type.typeName, "Unable to resolve raw class")
     }
 
     fun parameterType(type: Type, index: Int): Type {
         if (type !is ParameterizedType) {
-            throw Exception("${type.typeName} Expected parameterized type")
+            throw UnsupportedTypeException(type.typeName, "Expected parameterized type")
         }
         if (index !in type.actualTypeArguments.indices) {
-            throw Exception("${type.typeName} Missing generic argument at index $index")
+            throw UnsupportedTypeException(type.typeName, "Missing generic argument at index $index")
         }
         return type.actualTypeArguments[index]
     }
@@ -54,7 +56,7 @@ internal object TypeUtils {
         java.lang.Boolean::class.java, Boolean::class.javaPrimitiveType -> value.toBooleanStrict()
         Character::class.java, Char::class.javaPrimitiveType -> {
             if (value.length != 1) {
-                throw Exception("${keyClass.name} (cannot parse '$value' as single char)")
+                throw InvalidMapKeyTypeException("${keyClass.name} (cannot parse '$value' as single char)")
             }
             value.single()
         }
@@ -64,7 +66,7 @@ internal object TypeUtils {
             if (keyClass.isEnum) {
                 enumValue(keyClass, value)
             } else {
-                throw Exception(keyClass.name)
+                throw InvalidMapKeyTypeException(keyClass.name)
             }
         }
     }

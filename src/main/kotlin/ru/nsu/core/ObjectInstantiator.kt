@@ -1,5 +1,7 @@
 package ru.nsu.core
 
+import ru.nsu.exception.DeserializationException
+import ru.nsu.exception.MissingNoArgConstructorException
 import kotlin.reflect.KFunction
 import kotlin.reflect.KParameter
 import kotlin.reflect.full.primaryConstructor
@@ -29,14 +31,14 @@ internal object ObjectInstantiator {
             }
 
             if (!parameter.isOptional && !parameter.type.isMarkedNullable) {
-                throw RuntimeException("Missing required constructor argument '$name' for ${clazz.name}")
+                throw DeserializationException("Missing required constructor argument '$name' for ${clazz.name}")
             }
         }
 
         val instance = try {
             primary.callBy(ctorArgs)
         } catch (ex: Exception) {
-            throw RuntimeException("Failed to instantiate ${clazz.name}: ${ex.message}", ex)
+            throw DeserializationException("Failed to instantiate ${clazz.name}: ${ex.message}", ex)
         }
 
         val constructorFieldNames = constructorFieldNames(primary)
@@ -56,17 +58,14 @@ internal object ObjectInstantiator {
         val constructor = try {
             clazz.getDeclaredConstructor()
         } catch (ex: Exception) {
-            throw RuntimeException(
-                "Failed to instantiate ${clazz.name}: no suitable constructor found",
-                ex
-            )
+            throw MissingNoArgConstructorException(clazz.name)
         }
         constructor.trySetAccessible()
 
         val instance = try {
             constructor.newInstance()
         } catch (ex: Exception) {
-            throw RuntimeException("Failed to instantiate ${clazz.name}: ${ex.message}", ex)
+            throw DeserializationException("Failed to instantiate ${clazz.name}: ${ex.message}", ex)
         }
 
         setRemainingFields(instance, clazz, valuesByField, emptySet())
@@ -88,7 +87,7 @@ internal object ObjectInstantiator {
             try {
                 field.field.set(instance, valuesByField[field.fieldName])
             } catch (ex: Exception) {
-                throw RuntimeException(
+                throw DeserializationException(
                     "Failed to set field '${field.fieldName}' on ${clazz.name}: ${ex.message}",
                     ex
                 )
