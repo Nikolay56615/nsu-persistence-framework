@@ -18,7 +18,9 @@ import java.util.IdentityHashMap
 internal class JsonValueEncoder(
     private val objectMapper: ObjectMapper
 ) {
-    private class SerializationContext {
+    private class SerializationContext(
+        private val requestedVersion: Int?
+    ) {
         private val objectIds = IdentityHashMap<Any, String>()
         private var nextId = 1L
 
@@ -30,9 +32,18 @@ internal class JsonValueEncoder(
             objectIds[value] = id
             return id
         }
+
+        fun resolveVersion(meta: PersistClassMeta): Int = requestedVersion ?: meta.version
     }
 
-    fun encode(value: Any?): JsonNode = encodeValue(value, SerializationContext())
+    fun encode(value: Any?): JsonNode = encodeValue(value, SerializationContext(null))
+
+    fun encode(value: Any?, version: Int): JsonNode {
+        if (version < 1) {
+            throw SerializationException("Requested serialization version must be >= 1")
+        }
+        return encodeValue(value, SerializationContext(version))
+    }
 
     private fun encodeValue(value: Any?, context: SerializationContext): JsonNode {
         if (value == null) {
@@ -102,11 +113,17 @@ internal class JsonValueEncoder(
             return objectMapper.createObjectNode().put(Codec.REF_FIELD, existingId)
         }
 
-        val objectId = context.register(value)
         val meta = PersistClassIntrospector.getMeta(value.javaClass)
+        val writeVersion = context.resolveVersion(meta)
+        if (!meta.supportsVersion(writeVersion)) {
+            throw SerializationException("Class '${meta.clazz.name}' does not support version $writeVersion")
+        }
+
+        val objectId = context.register(value)
         val objectNode = objectMapper.createObjectNode()
         objectNode.put(Codec.ID_FIELD, objectId)
-        for (field in meta.fields) {
+        objectNode.put(Codec.VERSION_FIELD, writeVersion)
+        for (field in meta.fieldsForVersion(writeVersion)) {
             val fieldValue = try {
                 field.field.get(value)
             } catch (ex: Exception) {

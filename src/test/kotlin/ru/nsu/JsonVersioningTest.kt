@@ -1,0 +1,157 @@
+package ru.nsu
+
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import ru.nsu.core.Codec
+import ru.nsu.core.JsonDeserializer
+import ru.nsu.core.JsonSerialStream
+import ru.nsu.core.JsonSerializer
+import ru.nsu.core.JsonSession
+import ru.nsu.models.InvalidPersistableVersionRecord
+import ru.nsu.models.InvalidRequiredVersionedRecord
+import ru.nsu.models.InvalidVersionFieldRangeRecord
+import ru.nsu.models.InvalidVersionNameRecord
+import ru.nsu.models.InvalidVersionUntilRecord
+import ru.nsu.models.UnsupportedNestedVersionEnvelope
+import ru.nsu.models.VersionedAddress
+import ru.nsu.models.VersionedUser
+import java.nio.file.Path
+
+class JsonVersioningTest {
+
+    private val codec = Codec()
+    private val serializer = JsonSerializer(codec)
+
+    @TempDir
+    lateinit var tempDir: Path
+
+    @Test
+    fun `should write current version by default and include nested version fields`() {
+        val user = versionedUser()
+
+        val json = serializer.serialize(user)
+        val node = codec.parse(json)
+
+        assertThat(node.get("\$version").asInt()).isEqualTo(3)
+        assertThat(node.get("id").asText()).isEqualTo("u-1")
+        assertThat(node.get("address").get("\$version").asInt()).isEqualTo(3)
+        assertThat(node.has("nickname")).isFalse()
+        assertThat(node.get("email").asText()).isEqualTo("alice@example.com")
+        assertThat(node.get("address").get("zip_code").asText()).isEqualTo("630000")
+    }
+
+    @Test
+    fun `should gate fields by explicit write version and read old json without version as v1`() {
+        val user = versionedUser()
+
+        val versionOneJson = serializer.serialize(user, 1)
+        val versionOneNode = codec.parse(versionOneJson)
+        val restoredVersionOne = JsonDeserializer(VersionedUser::class, versionOneJson, codec, expectedVersion = 1).instance()
+        val oldJson = """
+            {
+              "id": "u-legacy",
+              "address": {
+                "city": "Novosibirsk"
+              }
+            }
+        """.trimIndent()
+        val restoredLegacy = JsonDeserializer(VersionedUser::class, oldJson, codec).instance()
+
+        assertThat(versionOneNode.get("\$version").asInt()).isEqualTo(1)
+        assertThat(versionOneNode.has("email")).isFalse()
+        assertThat(versionOneNode.get("nickname").asText()).isEqualTo("ally")
+        assertThat(versionOneNode.get("address").has("zip_code")).isFalse()
+
+        assertThat(restoredVersionOne).isEqualTo(
+            VersionedUser(
+                id = "u-1",
+                nickname = "ally",
+                email = null,
+                address = VersionedAddress(city = "Novosibirsk")
+            )
+        )
+        assertThat(restoredLegacy).isEqualTo(
+            VersionedUser(
+                id = "u-legacy",
+                nickname = null,
+                email = null,
+                address = VersionedAddress(city = "Novosibirsk")
+            )
+        )
+    }
+
+    @Test
+    fun `should reject expected version mismatches in deserializer stream and session`() {
+        val user = versionedUser()
+        val versionOneJson = serializer.serialize(user, 1)
+        val versionThreeJson = serializer.serialize(user, 3)
+        val session = JsonSession(codec = codec)
+            .setDirectory(tempDir)
+            .insert(user, 1)
+            .insert(user.copy(id = "u-2"), 3)
+
+        assertThatThrownBy {
+            JsonDeserializer(VersionedUser::class, versionThreeJson, codec, expectedVersion = 2).instance()
+        }.hasMessageContaining("Expected document version 2")
+
+        val stream = JsonSerialStream(VersionedUser::class, codec)
+            .add(versionOneJson)
+            .add(versionThreeJson)
+
+        assertThatThrownBy {
+            stream.toList(3)
+        }.hasMessageContaining("Expected document version 3")
+
+        assertThat(session.find(VersionedUser::class)).hasSize(2)
+        assertThatThrownBy {
+            session.find(VersionedUser::class, 3)
+        }.hasMessageContaining("Expected document version 3")
+    }
+
+    @Test
+    fun `should validate version metadata and nested class compatibility`() {
+        assertThatThrownBy {
+            serializer.serialize(InvalidPersistableVersionRecord("bad"))
+        }.hasMessageContaining("@Persistable")
+
+        assertThatThrownBy {
+            serializer.serialize(InvalidVersionFieldRangeRecord("bad"))
+        }.hasMessageContaining("since")
+
+        assertThatThrownBy {
+            serializer.serialize(InvalidVersionUntilRecord("bad"))
+        }.hasMessageContaining("until")
+
+        assertThatThrownBy {
+            serializer.serialize(InvalidVersionNameRecord("bad"))
+        }.hasMessageContaining("\$version")
+
+        assertThatThrownBy {
+            serializer.serialize(InvalidRequiredVersionedRecord("bad"))
+        }.hasMessageContaining("active for all supported versions")
+
+        assertThatThrownBy {
+            serializer.serialize(
+                UnsupportedNestedVersionEnvelope(
+                    id = "env-1",
+                    legacy = UnsupportedNestedVersionEnvelope.LegacyNested("nested")
+                ),
+                2
+            )
+        }.hasMessageContaining("does not support version 2")
+    }
+
+    private fun versionedUser(): VersionedUser {
+        return VersionedUser(
+            id = "u-1",
+            nickname = "ally",
+            email = "alice@example.com",
+            address = VersionedAddress(
+                city = "Novosibirsk",
+                zipCode = "630000"
+            )
+        )
+    }
+}

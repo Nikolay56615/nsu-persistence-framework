@@ -8,7 +8,8 @@ import kotlin.reflect.KClass
 class JsonDeserializer<T : Any>(
     private val clazz: KClass<T>,
     private val sourceJson: String,
-    private val codec: Codec = Codec()
+    private val codec: Codec = Codec(),
+    private val expectedVersion: Int? = null
 ) : Deserializer<T> {
 
     override fun instance(): T {
@@ -16,7 +17,7 @@ class JsonDeserializer<T : Any>(
         if (!node.isObject) {
             throw DeserializationException("Expected JSON object for ${clazz.qualifiedName}.instance()")
         }
-        return codec.decodeToClass(node, clazz)
+        return codec.decodeToClass(node, clazz, expectedVersion)
     }
 
     override fun collection(): List<T> {
@@ -24,7 +25,7 @@ class JsonDeserializer<T : Any>(
         if (!node.isArray) {
             throw DeserializationException("Expected JSON array for ${clazz.qualifiedName}.collection()")
         }
-        return node.map { codec.decodeToClass(it, clazz) }
+        return node.map { codec.decodeToClass(it, clazz, expectedVersion) }
     }
 
     override fun map(keyClass: KClass<*>): Map<Any, T> {
@@ -44,6 +45,6 @@ class JsonDeserializer<T : Any>(
         if (!valueNode.isObject) {
             throw DeserializationException("Map values must be JSON objects for ${clazz.qualifiedName}")
         }
-        return codec.decodeToClass(valueNode, clazz)
+        return codec.decodeToClass(valueNode, clazz, expectedVersion)
     }
 }

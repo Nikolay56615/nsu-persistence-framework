@@ -2,4 +2,4 @@ package ru.nsu.annotation
 
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
-annotation class Persistable
+annotation class Persistable(val version: Int = 1)

@@ -15,6 +15,7 @@ class Codec(
     companion object {
         const val ID_FIELD = $$"$id"
         const val REF_FIELD = $$"$ref"
+        const val VERSION_FIELD = $$"$version"
     }
 
     private val encoder = JsonValueEncoder(objectMapper)
@@ -58,8 +59,10 @@ class Codec(
 
     fun toJsonNode(value: Any?): JsonNode = encoder.encode(value)
 
-    fun <T : Any> decodeToClass(node: JsonNode, clazz: KClass<T>): T {
-        val result = decode(node, clazz.java)
+    fun toJsonNode(value: Any?, version: Int): JsonNode = encoder.encode(value, version)
+
+    fun <T : Any> decodeToClass(node: JsonNode, clazz: KClass<T>, expectedVersion: Int? = null): T {
+        val result = decoder.decodeRoot(node, clazz.java, expectedVersion)
         if (!clazz.java.isInstance(result)) {
             throw DeserializationException("Decoded value is not of expected type ${clazz.qualifiedName}")
         }

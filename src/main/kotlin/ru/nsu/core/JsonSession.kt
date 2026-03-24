@@ -35,8 +35,22 @@ class JsonSession(
         return this
     }
 
+    override fun insert(obj: Any, version: Int): Session {
+        val clazz = obj::class
+        PersistClassIntrospector.requirePersistable(clazz.java)
+
+        val node = codec.toJsonNode(obj, version)
+        val bucket = pendingInserts.getOrPut(clazz) { mutableListOf() }
+        bucket += PendingInsert(UUID.randomUUID(), node)
+        return this
+    }
+
     override fun <T : Any> find(clazz: KClass<T>): List<T> {
         return find(clazz) { true }
+    }
+
+    override fun <T : Any> find(clazz: KClass<T>, expectedVersion: Int): List<T> {
+        return find(clazz, { true }, expectedVersion)
     }
 
     override fun <T : Any> find(clazz: KClass<T>, filter: PersistFilter): List<T> {
@@ -46,6 +60,16 @@ class JsonSession(
             .asSequence()
             .filter { filter.matches(it) }
             .map { codec.decodeToClass(it, clazz) }
+            .toList()
+    }
+
+    override fun <T : Any> find(clazz: KClass<T>, filter: PersistFilter, expectedVersion: Int): List<T> {
+        PersistClassIntrospector.requirePersistable(clazz.java)
+
+        return visibleNodes(clazz)
+            .asSequence()
+            .filter { filter.matches(it) }
+            .map { codec.decodeToClass(it, clazz, expectedVersion) }
             .toList()
     }
 

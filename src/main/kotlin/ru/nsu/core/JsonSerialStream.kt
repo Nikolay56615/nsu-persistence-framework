@@ -26,6 +26,10 @@ class JsonSerialStream<T : Any>(
         return documents.map { codec.decodeToClass(it, clazz) }
     }
 
+    override fun toList(expectedVersion: Int): List<T> {
+        return documents.map { codec.decodeToClass(it, clazz, expectedVersion) }
+    }
+
     override fun toList(filter: PersistFilter): List<T> {
         return documents
             .asSequence()
@@ -34,11 +38,27 @@ class JsonSerialStream<T : Any>(
             .toList()
     }
 
+    override fun toList(filter: PersistFilter, expectedVersion: Int): List<T> {
+        return documents
+            .asSequence()
+            .filter { filter.matches(it) }
+            .map { codec.decodeToClass(it, clazz, expectedVersion) }
+            .toList()
+    }
+
     override fun toListExclude(filter: PersistFilter): List<T> {
         return documents
             .asSequence()
             .filterNot { filter.matches(it) }
             .map { codec.decodeToClass(it, clazz) }
+            .toList()
+    }
+
+    override fun toListExclude(filter: PersistFilter, expectedVersion: Int): List<T> {
+        return documents
+            .asSequence()
+            .filterNot { filter.matches(it) }
+            .map { codec.decodeToClass(it, clazz, expectedVersion) }
             .toList()
     }
 }

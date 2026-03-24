@@ -13,8 +13,12 @@ import kotlin.reflect.full.primaryConstructor
 import kotlin.reflect.jvm.kotlinProperty
 
 internal data class PersistFieldConfig(
-    val jsonName: String
-)
+    val jsonName: String,
+    val since: Int,
+    val until: Int
+) {
+    fun isActiveAt(version: Int): Boolean = version in since..until
+}
 
 internal data class PersistFieldMeta(
     val fieldName: String,
@@ -23,17 +27,24 @@ internal data class PersistFieldMeta(
     val genericType: Type,
     val config: PersistFieldConfig,
     val field: Field
-)
+) {
+    fun isActiveAt(version: Int): Boolean = config.isActiveAt(version)
+}
 
 internal data class PersistClassMeta(
     val clazz: Class<*>,
+    val version: Int,
     val fields: List<PersistFieldMeta>,
     val byFieldName: Map<String, PersistFieldMeta>,
     val byJsonName: Map<String, PersistFieldMeta>
-)
+) {
+    fun supportsVersion(targetVersion: Int): Boolean = targetVersion in 1..version
+
+    fun fieldsForVersion(targetVersion: Int): List<PersistFieldMeta> = fields.filter { it.isActiveAt(targetVersion) }
+}
 
 internal object PersistClassIntrospector {
-    private val reservedJsonNames = setOf(Codec.ID_FIELD, Codec.REF_FIELD)
+    private val reservedJsonNames = setOf(Codec.ID_FIELD, Codec.REF_FIELD, Codec.VERSION_FIELD)
     private val cache = ConcurrentHashMap<Class<*>, PersistClassMeta>()
 
     fun getMeta(clazz: Class<*>): PersistClassMeta = cache.computeIfAbsent(clazz) { inspect(it) }
@@ -46,6 +57,8 @@ internal object PersistClassIntrospector {
 
     private fun inspect(clazz: Class<*>): PersistClassMeta {
         requirePersistable(clazz)
+        val classVersion = clazz.getAnnotation(Persistable::class.java).version
+        ensureValidClassVersion(clazz, classVersion)
 
         val fields = allFields(clazz)
             .asSequence()
@@ -54,7 +67,7 @@ internal object PersistClassIntrospector {
             .filterNot { it.isSynthetic }
             .filterNot { it.name.endsWith("\$delegate") }
             .mapNotNull { field ->
-                val config = resolveConfig(field) ?: return@mapNotNull null
+                val config = resolveConfig(field, classVersion) ?: return@mapNotNull null
                 field.trySetAccessible()
                 PersistFieldMeta(
                     fieldName = field.name,
@@ -68,11 +81,13 @@ internal object PersistClassIntrospector {
             .toList()
 
         ensureHasPersistedFields(clazz, fields)
+        ensureValidFieldVersions(clazz, classVersion, fields)
         ensureUniqueJsonNames(clazz, fields)
-        ensureRequiredConstructorParametersPersisted(clazz, fields)
+        ensureRequiredConstructorParametersPersisted(clazz, classVersion, fields)
 
         return PersistClassMeta(
             clazz = clazz,
+            version = classVersion,
             fields = fields,
             byFieldName = fields.associateBy { it.fieldName },
             byJsonName = fields.associateBy { it.jsonName }
@@ -89,7 +104,7 @@ internal object PersistClassIntrospector {
         return result
     }
 
-    private fun resolveConfig(field: Field): PersistFieldConfig? {
+    private fun resolveConfig(field: Field, classVersion: Int): PersistFieldConfig? {
         val annotation = field.getAnnotation(PersistField::class.java)
             ?: field.kotlinProperty
                 ?.annotations
@@ -98,8 +113,16 @@ internal object PersistClassIntrospector {
             ?: return null
 
         return PersistFieldConfig(
-            jsonName = annotation.name.ifBlank { field.name }
+            jsonName = annotation.name.ifBlank { field.name },
+            since = annotation.since,
+            until = if (annotation.until == Int.MAX_VALUE) classVersion else annotation.until
         )
+    }
+
+    private fun ensureValidClassVersion(clazz: Class<*>, classVersion: Int) {
+        if (classVersion < 1) {
+            throw PersistenceException("Class '${clazz.name}' must declare @Persistable(version >= 1)")
+        }
     }
 
     private fun ensureHasPersistedFields(clazz: Class<*>, fields: List<PersistFieldMeta>) {
@@ -108,9 +131,33 @@ internal object PersistClassIntrospector {
         }
     }
 
-    private fun ensureRequiredConstructorParametersPersisted(clazz: Class<*>, fields: List<PersistFieldMeta>) {
+    private fun ensureValidFieldVersions(clazz: Class<*>, classVersion: Int, fields: List<PersistFieldMeta>) {
+        fields.forEach { field ->
+            if (field.config.since < 1) {
+                throw PersistenceException(
+                    "Field '${field.fieldName}' in class '${clazz.name}' must declare since >= 1"
+                )
+            }
+            if (field.config.until < field.config.since) {
+                throw PersistenceException(
+                    "Field '${field.fieldName}' in class '${clazz.name}' must declare until >= since"
+                )
+            }
+            if (field.config.until > classVersion) {
+                throw PersistenceException(
+                    "Field '${field.fieldName}' in class '${clazz.name}' cannot declare until > class version $classVersion"
+                )
+            }
+        }
+    }
+
+    private fun ensureRequiredConstructorParametersPersisted(
+        clazz: Class<*>,
+        classVersion: Int,
+        fields: List<PersistFieldMeta>
+    ) {
         val primaryConstructor = clazz.kotlin.primaryConstructor ?: return
-        val persistedFieldNames = fields.mapTo(mutableSetOf()) { it.fieldName }
+        val persistedFieldsByName = fields.associateBy { it.fieldName }
 
         primaryConstructor.parameters
             .asSequence()
@@ -119,9 +166,10 @@ internal object PersistClassIntrospector {
             .filter { !it.type.isMarkedNullable }
             .forEach { parameter ->
                 val parameterName = parameter.name ?: return@forEach
-                if (parameterName !in persistedFieldNames) {
+                val field = persistedFieldsByName[parameterName]
+                if (field == null || field.config.since != 1 || field.config.until != classVersion) {
                     throw PersistenceException(
-                        "Required constructor parameter '$parameterName' in class '${clazz.name}' must be annotated with @PersistField"
+                        "Required constructor parameter '$parameterName' in class '${clazz.name}' must be annotated with @PersistField and active for all supported versions"
                     )
                 }
             }

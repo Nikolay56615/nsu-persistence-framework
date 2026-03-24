@@ -11,8 +11,11 @@ import java.lang.reflect.Type
 import java.math.BigDecimal
 
 internal class JsonValueDecoder {
-    private class DeserializationContext {
+    private class DeserializationContext(
+        private val expectedRootVersion: Int?
+    ) {
         val objectsById = mutableMapOf<String, Any>()
+        private var rootObjectPending = true
 
         fun resolveReference(referenceId: String): Any {
             return objectsById[referenceId] ?: throw DeserializationException(
@@ -21,9 +24,30 @@ internal class JsonValueDecoder {
                     "to support pre-creation via an accessible no-arg constructor and mutable fields."
             )
         }
+
+        fun validateRootVersion(actualVersion: Int, clazz: Class<*>) {
+            if (!rootObjectPending) {
+                return
+            }
+            rootObjectPending = false
+
+            val expected = expectedRootVersion ?: return
+            if (expected < 1) {
+                throw DeserializationException("Expected document version must be >= 1 for ${clazz.name}")
+            }
+            if (actualVersion != expected) {
+                throw DeserializationException(
+                    "Expected document version $expected for ${clazz.name}, but got $actualVersion"
+                )
+            }
+        }
     }
 
-    fun decode(node: JsonNode, type: Type): Any? = decode(node, type, DeserializationContext())
+    fun decode(node: JsonNode, type: Type): Any? = decode(node, type, DeserializationContext(null))
+
+    fun decodeRoot(node: JsonNode, type: Type, expectedVersion: Int? = null): Any? {
+        return decode(node, type, DeserializationContext(expectedVersion))
+    }
 
     private fun decode(node: JsonNode, type: Type, context: DeserializationContext): Any? {
         if (node.isNull) {
@@ -129,23 +153,26 @@ internal class JsonValueDecoder {
             throw DeserializationException("Expected JSON object for class ${clazz.name}")
         }
 
+        val meta = PersistClassIntrospector.getMeta(clazz)
+        val documentVersion = resolveDocumentVersion(node, meta)
+        context.validateRootVersion(documentVersion, clazz)
+
         val objectId = node.get(Codec.ID_FIELD)?.asText()
         if (objectId != null && context.objectsById.containsKey(objectId)) {
             return context.objectsById.getValue(objectId)
         }
 
-        val meta = PersistClassIntrospector.getMeta(clazz)
         if (objectId != null && ObjectInstantiator.canInstantiateWithoutData(clazz)) {
             val instance = ObjectInstantiator.instantiateEmpty(clazz)
             context.objectsById[objectId] = instance
 
-            val valuesByField = decodeFieldValues(node, meta, context)
+            val valuesByField = decodeFieldValues(node, meta, context, documentVersion)
             ObjectInstantiator.populateFields(instance, clazz, valuesByField)
             return instance
         }
 
         return try {
-            val valuesByField = decodeFieldValues(node, meta, context)
+            val valuesByField = decodeFieldValues(node, meta, context, documentVersion)
             val instance = ObjectInstantiator.instantiate(clazz, valuesByField)
             if (objectId != null) {
                 context.objectsById[objectId] = instance
@@ -167,14 +194,35 @@ internal class JsonValueDecoder {
     private fun decodeFieldValues(
         node: JsonNode,
         meta: PersistClassMeta,
-        context: DeserializationContext
+        context: DeserializationContext,
+        documentVersion: Int
     ): Map<String, Any?> {
         val valuesByField = mutableMapOf<String, Any?>()
-        for (field in meta.fields) {
+        for (field in meta.fieldsForVersion(documentVersion)) {
             val valueNode = node.get(field.jsonName) ?: continue
             valuesByField[field.fieldName] = decode(valueNode, field.genericType, context)
         }
         return valuesByField
+    }
+
+    private fun resolveDocumentVersion(node: JsonNode, meta: PersistClassMeta): Int {
+        val versionNode = node.get(Codec.VERSION_FIELD)
+        val documentVersion = when {
+            versionNode == null || versionNode.isNull -> 1
+            !versionNode.canConvertToInt() -> throw DeserializationException(
+                "Document version field '${Codec.VERSION_FIELD}' must be an integer for ${meta.clazz.name}"
+            )
+
+            else -> versionNode.intValue()
+        }
+
+        if (!meta.supportsVersion(documentVersion)) {
+            throw DeserializationException(
+                "Document version $documentVersion is not supported by ${meta.clazz.name}; supported range is 1..${meta.version}"
+            )
+        }
+
+        return documentVersion
     }
 
     private fun decodeAny(node: JsonNode, context: DeserializationContext): Any? = when {
