@@ -1,7 +1,6 @@
 package ru.nsu.core
 
-import ru.nsu.annotation.PersistIgnore
-import ru.nsu.annotation.PersistName
+import ru.nsu.annotation.PersistField
 import ru.nsu.annotation.Persistable
 import ru.nsu.exception.MissingPersistableAnnotationException
 import ru.nsu.exception.PersistenceException
@@ -9,13 +8,20 @@ import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import java.lang.reflect.Type
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.reflect.KParameter
+import kotlin.reflect.full.primaryConstructor
 import kotlin.reflect.jvm.kotlinProperty
+
+internal data class PersistFieldConfig(
+    val jsonName: String
+)
 
 internal data class PersistFieldMeta(
     val fieldName: String,
     val jsonName: String,
     val type: Class<*>,
     val genericType: Type,
+    val config: PersistFieldConfig,
     val field: Field
 )
 
@@ -47,20 +53,23 @@ internal object PersistClassIntrospector {
             .filterNot { Modifier.isTransient(it.modifiers) }
             .filterNot { it.isSynthetic }
             .filterNot { it.name.endsWith("\$delegate") }
-            .filterNot { isIgnored(it) }
-            .map { field ->
+            .mapNotNull { field ->
+                val config = resolveConfig(field) ?: return@mapNotNull null
                 field.trySetAccessible()
                 PersistFieldMeta(
                     fieldName = field.name,
-                    jsonName = resolveJsonName(field),
+                    jsonName = config.jsonName,
                     type = field.type,
                     genericType = field.genericType,
+                    config = config,
                     field = field
                 )
             }
             .toList()
 
+        ensureHasPersistedFields(clazz, fields)
         ensureUniqueJsonNames(clazz, fields)
+        ensureRequiredConstructorParametersPersisted(clazz, fields)
 
         return PersistClassMeta(
             clazz = clazz,
@@ -80,29 +89,42 @@ internal object PersistClassIntrospector {
         return result
     }
 
-    private fun isIgnored(field: Field): Boolean {
-        if (field.isAnnotationPresent(PersistIgnore::class.java)) {
-            return true
-        }
-        return field.kotlinProperty?.annotations?.any { it is PersistIgnore } == true
+    private fun resolveConfig(field: Field): PersistFieldConfig? {
+        val annotation = field.getAnnotation(PersistField::class.java)
+            ?: field.kotlinProperty
+                ?.annotations
+                ?.filterIsInstance<PersistField>()
+                ?.firstOrNull()
+            ?: return null
+
+        return PersistFieldConfig(
+            jsonName = annotation.name.ifBlank { field.name }
+        )
     }
 
-    private fun resolveJsonName(field: Field): String {
-        val fieldAlias = field.getAnnotation(PersistName::class.java)?.value
-        if (!fieldAlias.isNullOrBlank()) {
-            return fieldAlias
+    private fun ensureHasPersistedFields(clazz: Class<*>, fields: List<PersistFieldMeta>) {
+        if (fields.isEmpty()) {
+            throw PersistenceException("Class '${clazz.name}' must declare at least one @PersistField")
         }
+    }
 
-        val propertyAlias = field.kotlinProperty
-            ?.annotations
-            ?.filterIsInstance<PersistName>()
-            ?.firstOrNull()
-            ?.value
-        if (!propertyAlias.isNullOrBlank()) {
-            return propertyAlias
-        }
+    private fun ensureRequiredConstructorParametersPersisted(clazz: Class<*>, fields: List<PersistFieldMeta>) {
+        val primaryConstructor = clazz.kotlin.primaryConstructor ?: return
+        val persistedFieldNames = fields.mapTo(mutableSetOf()) { it.fieldName }
 
-        return field.name
+        primaryConstructor.parameters
+            .asSequence()
+            .filter { it.kind == KParameter.Kind.VALUE }
+            .filter { !it.isOptional }
+            .filter { !it.type.isMarkedNullable }
+            .forEach { parameter ->
+                val parameterName = parameter.name ?: return@forEach
+                if (parameterName !in persistedFieldNames) {
+                    throw PersistenceException(
+                        "Required constructor parameter '$parameterName' in class '${clazz.name}' must be annotated with @PersistField"
+                    )
+                }
+            }
     }
 
     private fun ensureUniqueJsonNames(clazz: Class<*>, fields: List<PersistFieldMeta>) {

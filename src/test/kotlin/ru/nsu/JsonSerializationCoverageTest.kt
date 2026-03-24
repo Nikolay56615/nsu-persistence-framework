@@ -10,7 +10,9 @@ import ru.nsu.core.JsonSerializer
 import ru.nsu.models.AnnotatedRecord
 import ru.nsu.models.DefaultedRecord
 import ru.nsu.models.DuplicateJsonNames
+import ru.nsu.models.LegacyAnnotatedRecord
 import ru.nsu.models.MutableRecord
+import ru.nsu.models.NoPersistFieldsRecord
 import ru.nsu.models.OrderItem
 import ru.nsu.models.PlainRecord
 import java.nio.file.Files
@@ -90,6 +92,7 @@ class JsonSerializationCoverageTest {
         assertThat(defaulted).isEqualTo(DefaultedRecord(required = "value", count = 7))
         assertThat(mutable.id).isEqualTo("mutable-1")
         assertThat(mutable.age).isEqualTo(42)
+        assertThat(mutable.nickname).isEqualTo("n/a")
     }
 
     @Test
@@ -116,5 +119,27 @@ class JsonSerializationCoverageTest {
         assertThatThrownBy {
             serializer.serialize(DuplicateJsonNames("one", "two"))
         }.hasMessageContaining("duplicate JSON field names")
+
+        assertThatThrownBy {
+            serializer.serialize(NoPersistFieldsRecord("missing"))
+        }.hasMessageContaining("@PersistField")
+
+        assertThatThrownBy {
+            serializer.serialize(LegacyAnnotatedRecord(name = "legacy"))
+        }.hasMessageContaining("@PersistField")
+    }
+
+    @Test
+    fun `should reject required constructor parameters that are not persisted`() {
+        assertThatThrownBy {
+            serializer.serialize(InvalidConstructorRecord(id = "rec-1", version = 2))
+        }.hasMessageContaining("Required constructor parameter")
     }
 }
+
+@ru.nsu.annotation.Persistable
+data class InvalidConstructorRecord(
+    @field:ru.nsu.annotation.PersistField
+    val id: String,
+    val version: Int
+)

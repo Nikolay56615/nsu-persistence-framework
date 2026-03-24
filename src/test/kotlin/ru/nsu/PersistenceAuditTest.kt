@@ -1,8 +1,7 @@
 package ru.nsu
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import ru.nsu.annotation.PersistIgnore
-import ru.nsu.annotation.PersistName
+import ru.nsu.annotation.PersistField
 import ru.nsu.annotation.Persistable
 import ru.nsu.core.JsonDeserializer
 import ru.nsu.core.JsonSerializer
@@ -21,21 +20,22 @@ class PersistenceAuditTest {
     private val mapper = ObjectMapper()
 
     @Test
-    fun `opt-out serializes backing fields and skips computed properties and ignored state`() {
+    fun `opt-in serializes only annotated backing fields and skips transient state`() {
         val rectangle = Rectangle(width = 3, height = 4, label = "demo", cache = "skip-me")
 
         val json = serializer.serialize(rectangle)
         val node = mapper.readTree(json)
 
         assertEquals(3, node.get("width").asInt())
-        assertEquals(4, node.get("height").asInt())
         assertEquals("demo", node.get("title").asText())
+        assertFalse(node.has("height"))
         assertFalse(node.has("cache"))
         assertFalse(node.has("area"))
         assertFalse(node.has("describe"))
 
         val restored = JsonDeserializer(Rectangle::class, json).instance()
-        assertEquals(12, restored.area)
+        assertEquals(0, restored.height)
+        assertEquals(0, restored.area)
         assertEquals("skip-default", restored.cache)
     }
 
@@ -78,13 +78,14 @@ class PersistenceAuditTest {
     fun `stream and session can load and filter persisted json`() {
         val first = Rectangle(width = 2, height = 5, label = "small")
         val second = Rectangle(width = 7, height = 3, label = "big")
+        val persistedSecond = second.copy(height = 0)
 
         val stream = serialStream<Rectangle>()
             .add(serializer.serialize(first))
             .add(serializer.serialize(second))
 
         val filtered = stream.toList(Filters.gt("width", 3))
-        assertEquals(listOf(second), filtered)
+        assertEquals(listOf(persistedSecond), filtered)
 
         val directory = createTempDirectory("kpersist-audit")
         val session = KPersist.session(directory)
@@ -94,11 +95,11 @@ class PersistenceAuditTest {
         assertEquals(2, stored.size)
 
         val onlyBig = session.find(Rectangle::class, Filters.eq("title", "big"))
-        assertEquals(listOf(second), onlyBig)
+        assertEquals(listOf(persistedSecond), onlyBig)
 
         session.delete(Rectangle::class, Filters.lt("width", 3)).persist()
         val afterDelete = session.find(Rectangle::class)
-        assertEquals(listOf(second), afterDelete)
+        assertEquals(listOf(persistedSecond), afterDelete)
     }
 
     @Test
@@ -150,11 +151,11 @@ class PersistenceAuditTest {
 
 @Persistable
 data class Rectangle(
+    @field:PersistField
     val width: Int,
-    val height: Int,
-    @field:PersistName("title")
+    val height: Int = 0,
+    @field:PersistField(name = "title")
     val label: String,
-    @field:PersistIgnore
     val cache: String = "skip-default"
 ) {
     val area: Int
@@ -165,7 +166,9 @@ data class Rectangle(
 
 @Persistable
 data class Address(
+    @field:PersistField
     val city: String,
+    @field:PersistField
     val street: String
 )
 
@@ -176,22 +179,33 @@ enum class Role {
 
 @Persistable
 data class Person(
+    @field:PersistField
     val name: String,
+    @field:PersistField
     val age: Int,
+    @field:PersistField
     val role: Role,
+    @field:PersistField
     val address: Address,
+    @field:PersistField
     val tags: List<String>,
+    @field:PersistField
     val nickname: String?
 )
 
 @Persistable
 class MutableNode {
+    @PersistField
     var name: String = ""
+
+    @PersistField
     var next: MutableNode? = null
 }
 
 @Persistable
 data class ConstructorNode(
+    @field:PersistField
     val name: String,
+    @field:PersistField
     val next: ConstructorNode?
 )

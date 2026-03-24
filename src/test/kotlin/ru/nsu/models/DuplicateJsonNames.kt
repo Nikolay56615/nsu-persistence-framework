@@ -1,12 +1,12 @@
 package ru.nsu.models
 
-import ru.nsu.annotation.PersistName
+import ru.nsu.annotation.PersistField
 import ru.nsu.annotation.Persistable
 
 @Persistable
 data class DuplicateJsonNames(
-    @field:PersistName("same")
+    @field:PersistField(name = "same")
     val first: String,
-    @field:PersistName("same")
+    @field:PersistField(name = "same")
     val second: String
 )

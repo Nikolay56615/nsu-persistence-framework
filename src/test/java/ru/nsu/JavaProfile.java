@@ -1,13 +1,14 @@
 package ru.nsu;
 
-import ru.nsu.annotation.PersistName;
+import ru.nsu.annotation.PersistField;
 import ru.nsu.annotation.Persistable;
 
 @Persistable
 public class JavaProfile {
+    @PersistField
     public String id;
 
-    @PersistName("lvl")
+    @PersistField(name = "lvl")
     public Integer level;
 
     public transient String secret;
