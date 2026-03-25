@@ -4,14 +4,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import ru.nsu.fixture.AnnotatedRecord
-import ru.nsu.fixture.DefaultedRecord
-import ru.nsu.fixture.DuplicateJsonNames
-import ru.nsu.fixture.LegacyAnnotatedRecord
-import ru.nsu.fixture.MutableRecord
-import ru.nsu.fixture.NoPersistFieldsRecord
-import ru.nsu.fixture.OrderItem
-import ru.nsu.fixture.PlainRecord
+import ru.nsu.shared.OrderItem
+import ru.nsu.shared.PlainRecord
 import java.nio.file.Files
 import java.nio.file.Path
 

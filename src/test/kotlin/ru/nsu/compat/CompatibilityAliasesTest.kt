@@ -9,9 +9,9 @@ import ru.nsu.core.JsonDeserializer
 import ru.nsu.core.JsonSerialStream
 import ru.nsu.core.JsonSerializer
 import ru.nsu.core.JsonSession
-import ru.nsu.fixture.OrderItem
 import ru.nsu.query.Filters
 import ru.nsu.query.PersistFilter
+import ru.nsu.shared.OrderItem
 import java.nio.file.Path
 
 class CompatibilityAliasesTest {

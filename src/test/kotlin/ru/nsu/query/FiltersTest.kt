@@ -5,7 +5,7 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import ru.nsu.codec.JsonCodec
 import ru.nsu.exception.InvalidFilterException
-import ru.nsu.fixture.OrderStatus
+import ru.nsu.shared.OrderStatus
 
 class FiltersTest {
 

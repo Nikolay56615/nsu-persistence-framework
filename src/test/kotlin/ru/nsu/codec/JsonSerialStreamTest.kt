@@ -3,10 +3,10 @@ package ru.nsu.codec
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import ru.nsu.fixture.Address
-import ru.nsu.fixture.User
 import ru.nsu.query.Filters
 import ru.nsu.query.PersistFilter
+import ru.nsu.shared.Address
+import ru.nsu.shared.User
 import java.nio.file.Path
 
 class JsonSerialStreamTest {

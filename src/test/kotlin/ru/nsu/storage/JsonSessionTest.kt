@@ -5,10 +5,10 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import ru.nsu.codec.JsonCodec
-import ru.nsu.fixture.Address
-import ru.nsu.fixture.PlainRecord
-import ru.nsu.fixture.User
 import ru.nsu.query.Filters
+import ru.nsu.shared.Address
+import ru.nsu.shared.PlainRecord
+import ru.nsu.shared.User
 import java.nio.file.Files
 import java.nio.file.Path
 

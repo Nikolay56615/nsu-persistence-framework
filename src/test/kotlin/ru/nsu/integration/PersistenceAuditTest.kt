@@ -7,7 +7,6 @@ import ru.nsu.annotation.Persistable
 import ru.nsu.deserializer
 import ru.nsu.codec.JsonDeserializer
 import ru.nsu.codec.JsonSerializer
-import ru.nsu.fixture.JavaProfile
 import ru.nsu.query.Filters
 import ru.nsu.serialStream
 import kotlin.io.path.createTempDirectory

@@ -9,14 +9,6 @@ import ru.nsu.codec.JsonCodec
 import ru.nsu.codec.JsonDeserializer
 import ru.nsu.codec.JsonSerialStream
 import ru.nsu.codec.JsonSerializer
-import ru.nsu.fixture.InvalidPersistableVersionRecord
-import ru.nsu.fixture.InvalidRequiredVersionedRecord
-import ru.nsu.fixture.InvalidVersionFieldRangeRecord
-import ru.nsu.fixture.InvalidVersionNameRecord
-import ru.nsu.fixture.InvalidVersionUntilRecord
-import ru.nsu.fixture.UnsupportedNestedVersionEnvelope
-import ru.nsu.fixture.VersionedAddress
-import ru.nsu.fixture.VersionedUser
 import ru.nsu.storage.JsonSession
 import java.nio.file.Path
 

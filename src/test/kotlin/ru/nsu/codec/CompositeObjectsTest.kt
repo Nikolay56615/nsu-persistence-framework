@@ -2,11 +2,10 @@ package ru.nsu.codec
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import ru.nsu.fixture.Address
-import ru.nsu.fixture.Order
-import ru.nsu.fixture.OrderItem
-import ru.nsu.fixture.OrderStatus
-import ru.nsu.fixture.User
+import ru.nsu.shared.Address
+import ru.nsu.shared.OrderItem
+import ru.nsu.shared.OrderStatus
+import ru.nsu.shared.User
 
 class CompositeObjectsTest {
 
