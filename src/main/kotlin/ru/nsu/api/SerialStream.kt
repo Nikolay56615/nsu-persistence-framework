@@ -1,6 +1,6 @@
 package ru.nsu.api
 
-import ru.nsu.PersistFilter
+import ru.nsu.query.PersistFilter
 import java.nio.file.Path
 
 interface SerialStream<T : Any> {

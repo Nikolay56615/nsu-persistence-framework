@@ -1,0 +1,11 @@
+package ru.nsu.fixture
+
+import ru.nsu.annotation.PersistField
+import ru.nsu.annotation.Persistable
+
+@Persistable
+data class DefaultedRecord(
+    @field:PersistField
+    val required: String,
+    val count: Int = 7
+)

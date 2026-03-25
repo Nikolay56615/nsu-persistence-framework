@@ -4,10 +4,10 @@ import ru.nsu.api.Deserializer
 import ru.nsu.api.SerialStream
 import ru.nsu.api.Serializer
 import ru.nsu.api.Session
-import ru.nsu.core.JsonDeserializer
-import ru.nsu.core.JsonSerialStream
-import ru.nsu.core.JsonSerializer
-import ru.nsu.core.JsonSession
+import ru.nsu.codec.JsonDeserializer
+import ru.nsu.codec.JsonSerialStream
+import ru.nsu.codec.JsonSerializer
+import ru.nsu.storage.JsonSession
 import java.nio.file.Path
 import kotlin.reflect.KClass
 
