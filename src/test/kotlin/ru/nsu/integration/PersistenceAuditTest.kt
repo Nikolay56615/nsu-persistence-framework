@@ -139,6 +139,32 @@ class PersistenceAuditTest {
     }
 
     @Test
+    fun `serializer and deserializer preserve cycles through collections and maps`() {
+        val roster = TeamRoster()
+        roster.name = "core-team"
+
+        val member = TeamMember()
+        member.name = "alice"
+        member.teams = linkedMapOf("primary" to roster)
+        roster.members = listOf(member)
+
+        val json = serializer.serialize(roster)
+        val node = mapper.readTree(json)
+
+        assertEquals("1", node.get("\$id").asText())
+        assertEquals("2", node.get("members")[0].get("\$id").asText())
+        assertEquals("1", node.get("members")[0].get("teams").get("primary").get("\$ref").asText())
+
+        val restored = JsonDeserializer(TeamRoster::class, json).instance()
+        assertEquals("core-team", restored.name)
+        assertEquals(1, restored.members.size)
+
+        val restoredMember = restored.members.single()
+        assertEquals("alice", restoredMember.name)
+        assertSame(restored, restoredMember.teams["primary"])
+    }
+
+    @Test
     fun `deserializer throws clear error for cyclic constructor-only classes`() {
         val json = """
             {
@@ -211,6 +237,24 @@ class MutableNode {
 
     @PersistField
     var next: MutableNode? = null
+}
+
+@Persistable
+class TeamRoster {
+    @PersistField
+    var name: String = ""
+
+    @PersistField
+    var members: List<TeamMember> = emptyList()
+}
+
+@Persistable
+class TeamMember {
+    @PersistField
+    var name: String = ""
+
+    @PersistField
+    var teams: Map<String, TeamRoster> = emptyMap()
 }
 
 @Persistable

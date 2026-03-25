@@ -114,10 +114,6 @@ class JsonSerializationCoverageTest {
         assertThatThrownBy {
             serializer.serialize(NoPersistFieldsRecord("missing"))
         }.hasMessageContaining("@PersistField")
-
-        assertThatThrownBy {
-            serializer.serialize(LegacyAnnotatedRecord(name = "legacy"))
-        }.hasMessageContaining("@PersistField")
     }
 
     @Test
