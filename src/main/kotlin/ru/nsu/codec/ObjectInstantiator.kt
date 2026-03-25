@@ -3,6 +3,8 @@ package ru.nsu.codec
 import ru.nsu.exception.DeserializationException
 import ru.nsu.exception.MissingNoArgConstructorException
 import ru.nsu.metadata.PersistMetadataResolver
+import java.lang.reflect.Constructor
+import java.lang.reflect.Parameter
 import kotlin.reflect.KFunction
 import kotlin.reflect.KParameter
 import kotlin.reflect.full.primaryConstructor
@@ -13,8 +15,19 @@ internal class ObjectInstantiator(
 ) {
 
     fun instantiate(clazz: Class<*>, valuesByField: Map<String, Any?>): Any {
-        return instantiateWithKotlinConstructor(clazz, valuesByField)
-            ?: instantiateWithNoArgConstructor(clazz, valuesByField)
+        instantiateWithKotlinConstructor(clazz, valuesByField)?.let { return it }
+
+        return when (val javaResolution = instantiateWithJavaConstructor(clazz, valuesByField)) {
+            is JavaConstructorResolution.Success -> javaResolution.instance
+            is JavaConstructorResolution.Unsupported -> {
+                if (findNoArgConstructor(clazz) == null) {
+                    throw DeserializationException(javaResolution.message, javaResolution.cause)
+                }
+                instantiateWithNoArgConstructor(clazz, valuesByField)
+            }
+
+            JavaConstructorResolution.NotApplicable -> instantiateWithNoArgConstructor(clazz, valuesByField)
+        }
     }
 
     fun canInstantiateWithoutData(clazz: Class<*>): Boolean = findNoArgConstructor(clazz) != null
@@ -83,6 +96,116 @@ internal class ObjectInstantiator(
             .toSet()
     }
 
+    private fun instantiateWithJavaConstructor(clazz: Class<*>, valuesByField: Map<String, Any?>): JavaConstructorResolution {
+        val persistedFieldNames = metadataResolver.getMeta(clazz).byFieldName.keys
+        val candidates = clazz.declaredConstructors
+            .asSequence()
+            .filterNot { it.parameterCount == 0 }
+            .filterNot { it.isSynthetic }
+            .sortedByDescending { it.parameterCount }
+            .toList()
+
+        if (candidates.isEmpty()) {
+            return JavaConstructorResolution.NotApplicable
+        }
+
+        var sawConstructorWithoutNames = false
+        var sawUnsupportedParameterMapping = false
+        var sawPrimitiveGap = false
+        var lastFailure: DeserializationException? = null
+
+        for (constructor in candidates) {
+            val parameterNames = constructorParameters(constructor)
+            if (parameterNames == null) {
+                sawConstructorWithoutNames = true
+                continue
+            }
+
+            if (parameterNames.any { it !in persistedFieldNames }) {
+                sawUnsupportedParameterMapping = true
+                continue
+            }
+
+            val invocation = prepareJavaConstructorArgs(constructor, parameterNames, valuesByField)
+            if (invocation == null) {
+                sawPrimitiveGap = true
+                continue
+            }
+
+            constructor.trySetAccessible()
+
+            val instance = try {
+                constructor.newInstance(*invocation.arguments)
+            } catch (ex: Exception) {
+                lastFailure = DeserializationException("Failed to instantiate ${clazz.name}: ${ex.message}", ex)
+                continue
+            }
+
+            setRemainingFields(instance, clazz, valuesByField, invocation.boundFieldNames)
+            return JavaConstructorResolution.Success(instance)
+        }
+
+        if (lastFailure != null) {
+            return JavaConstructorResolution.Unsupported(
+                lastFailure.message ?: "Failed to instantiate ${clazz.name}",
+                lastFailure
+            )
+        }
+
+        if (sawUnsupportedParameterMapping || sawPrimitiveGap || sawConstructorWithoutNames) {
+            return JavaConstructorResolution.Unsupported(
+                buildString {
+                    append("Failed to instantiate ${clazz.name}: no supported Java constructor found. ")
+                    append("Constructor-based Java deserialization requires parameter names retained at compile time and ")
+                    append("every constructor parameter to match an @PersistField field. ")
+                    if (sawPrimitiveGap) {
+                        append("Version-gated primitive constructor fields require a no-arg constructor or boxed type. ")
+                    }
+                    append("Otherwise provide an accessible no-arg constructor.")
+                }
+            )
+        }
+
+        return JavaConstructorResolution.NotApplicable
+    }
+
+    private fun constructorParameters(constructor: Constructor<*>): List<String>? {
+        if (constructor.parameters.any { !it.isNamePresent }) {
+            return null
+        }
+        return constructor.parameters.map(Parameter::getName)
+    }
+
+    private fun prepareJavaConstructorArgs(
+        constructor: Constructor<*>,
+        parameterNames: List<String>,
+        valuesByField: Map<String, Any?>
+    ): JavaConstructorInvocation? {
+        val arguments = arrayOfNulls<Any?>(constructor.parameterCount)
+        val boundFieldNames = linkedSetOf<String>()
+
+        for ((index, parameter) in constructor.parameters.withIndex()) {
+            val parameterName = parameterNames[index]
+            if (valuesByField.containsKey(parameterName)) {
+                arguments[index] = valuesByField[parameterName]
+                boundFieldNames += parameterName
+                continue
+            }
+
+            if (parameter.type.isPrimitive) {
+                return null
+            }
+
+            arguments[index] = null
+        }
+
+        if (boundFieldNames.isEmpty()) {
+            return null
+        }
+
+        return JavaConstructorInvocation(arguments, boundFieldNames)
+    }
+
     private fun instantiateWithNoArgConstructor(clazz: Class<*>, valuesByField: Map<String, Any?>): Any {
         val constructor = findNoArgConstructor(clazz) ?: throw MissingNoArgConstructorException(clazz.name)
         constructor.trySetAccessible()
@@ -126,5 +249,16 @@ internal class ObjectInstantiator(
                 )
             }
         }
+    }
+
+    private data class JavaConstructorInvocation(
+        val arguments: Array<Any?>,
+        val boundFieldNames: Set<String>
+    )
+
+    private sealed interface JavaConstructorResolution {
+        data object NotApplicable : JavaConstructorResolution
+        data class Success(val instance: Any) : JavaConstructorResolution
+        data class Unsupported(val message: String, val cause: Throwable? = null) : JavaConstructorResolution
     }
 }

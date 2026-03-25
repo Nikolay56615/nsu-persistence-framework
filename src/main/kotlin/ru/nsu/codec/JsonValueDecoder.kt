@@ -2,6 +2,7 @@ package ru.nsu.codec
 
 import com.fasterxml.jackson.databind.JsonNode
 import ru.nsu.exception.DeserializationException
+import ru.nsu.exception.UnresolvedObjectReferenceException
 import ru.nsu.exception.UnsupportedTypeException
 import ru.nsu.metadata.PersistClassMeta
 import ru.nsu.metadata.PersistMetadataResolver
@@ -23,11 +24,7 @@ internal class JsonValueDecoder(
         private var rootObjectPending = true
 
         fun resolveReference(referenceId: String): Any {
-            return objectsById[referenceId] ?: throw DeserializationException(
-                "Unresolved object reference '$referenceId'. " +
-                    "The target object has not been created yet; cyclic graphs require the target class " +
-                    "to support pre-creation via an accessible no-arg constructor and mutable fields."
-            )
+            return objectsById[referenceId] ?: throw UnresolvedObjectReferenceException(referenceId)
         }
 
         fun validateRootVersion(actualVersion: Int, clazz: Class<*>) {
@@ -184,7 +181,7 @@ internal class JsonValueDecoder(
             }
             instance
         } catch (ex: DeserializationException) {
-            if (objectId != null && !objectInstantiator.canInstantiateWithoutData(clazz)) {
+            if (ex is UnresolvedObjectReferenceException && objectId != null && !objectInstantiator.canInstantiateWithoutData(clazz)) {
                 throw DeserializationException(
                     "Failed to restore object graph for ${clazz.name}. " +
                         "This object participates in a \$id/\$ref graph but cannot be pre-created before its fields " +
