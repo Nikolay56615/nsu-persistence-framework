@@ -220,7 +220,7 @@ internal class ObjectInstantiator(
         return instance
     }
 
-    private fun findNoArgConstructor(clazz: Class<*>): java.lang.reflect.Constructor<*>? {
+    private fun findNoArgConstructor(clazz: Class<*>): Constructor<*>? {
         return try {
             clazz.getDeclaredConstructor()
         } catch (_: Exception) {
@@ -251,7 +251,7 @@ internal class ObjectInstantiator(
         }
     }
 
-    private data class JavaConstructorInvocation(
+    private class JavaConstructorInvocation(
         val arguments: Array<Any?>,
         val boundFieldNames: Set<String>
     )

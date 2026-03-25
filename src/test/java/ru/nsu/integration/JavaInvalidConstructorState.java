@@ -18,8 +18,4 @@ public class JavaInvalidConstructorState {
     public String getId() {
         return id;
     }
-
-    public String getInternalCode() {
-        return internalCode;
-    }
 }
