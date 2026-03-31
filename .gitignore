@@ -40,3 +40,6 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+examples/demo/libs/persistence-framework-all.jar
+examples/demo/.gradle/
